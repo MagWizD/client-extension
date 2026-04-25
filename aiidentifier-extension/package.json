@@ -9,12 +9,19 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:aiidentifier-extension.addDummyFlag",
+    "onCommand:aiidentifier-extension.showFlags"
+  ],
   "main": "./extension.js",
   "contributes": {
     "commands": [{
-      "command": "aiidentifier-extension.helloWorld",
-      "title": "Hello World"
+      "command": "aiidentifier-extension.addDummyFlag",
+      "title": "Add Dummy Flag"
+    },
+    {
+      "command": "aiidentifier-extension.showFlags",
+      "title": "Show Flags"
     }]
   },
   "scripts": {
