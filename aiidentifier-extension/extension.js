@@ -124,7 +124,7 @@ function activate(context) {
     const repoListener = git.onDidOpenRepository(repo => {
         const workspacePath = repo.rootUri.fsPath;
         installGitHooks(workspacePath);
-        setupRepo(repo, contest);
+        setupRepo(repo, context);
     });
 
     // Register the repoListener with VSCode
@@ -182,8 +182,80 @@ function activate(context) {
     context.subscriptions.push(addDummy, showFlags);
 }
 
+// === ON COMMIT ===================================================
+// Called by setupRepo's stateListener when new commit detected
+function onCommit(workspacePath, sha) {
+    // No flags queued
+    if (flaggedRegions.length === 0) {
+        vscode.window.showInformationMessage(
+            `aiidentifier-extension: Commit ${sha.slice(0, 7)} detected: no flags to attach.`
+        );
+        return;
+    }
 
-// === SETUP REPO ==================================================
+    try {
+        // Serialize the flagged regions array into a structured JSON object
+        const noteContent = JSON.stringify({
+            aiidentifierVersion: '0.0.1',
+            commit: sha,
+            generatedAt: new Date().toISOString(),
+            flagCount: flaggedRegions.length,
+            flaggedRegions: flaggedRegions
+        }, null, 2);
+
+        // Write the JSON as a git note attached to this commit SHA.
+        // We write to a temp file first because passing large JSON directly
+        // as a command line argument breaks on Windows due to quote handling
+        const tempFile = path.join(storagePath, 'temp_note.json');
+        fs.writeFileSync(tempFile, noteContent);
+
+        // Handle the cross-OS issues, read a file instead of running a command
+        execSync(
+            `git notes add -f -F "${tempFile}" ${sha}`,
+            { cwd: workspacePath }
+        );
+
+        // Clean up temp file
+        fs.unlinkSync(tempFile);
+
+        // Save count before clearing so we can show it in the message
+        const count = flaggedRegions.length;
+        // Clear array, next commit starts with no flags
+        flaggedRegions = [];
+        // Persist cleared state to disk
+        saveFlagsToDisk();
+
+        // Confirm to user (XXX - DEBUG ONLY!)
+        vscode.window.showInformationMessage(
+            `aiidentifier-extension: ${count} flag(s) attached to commit ${sha.slice(0, 7)} and cleared.`
+        );
+
+    } catch (err) {
+        // Fatal: Show as an error
+        vscode.window.showErrorMessage(
+            `aiidentifier-extension: Failed to write git note: ${err.message}`
+        );
+    }
+}
+
+// === ON PUSH =====================================================
+// Called by setupRepo's stateListener when push detected.
+function onPush(workspacePath) {
+    try {
+        // Push all refs/notes/* to origin so GitHub bot can read them
+        execSync('git push origin refs/notes/*', { cwd: workspacePath });
+
+        vscode.window.showInformationMessage(
+            'aiidentifier-extension: Notes pushed to remote successfully.'
+        );
+    } catch (err) {
+        vscode.window.showWarningMessage(
+            `aiidentifier-extension: Could not push notes — ${err.message}`
+        );
+    }
+}
+
+// === SETUP REPO ===================================================
 // Called once per repository: Sets up state-change-listener
 // to detect commits and pushes. 
 // THis is isolated from activate() so that it will be called for each repo
@@ -199,7 +271,7 @@ function setupRepo(repo, context) {
     // branch switch, pull, etc.
     const stateListener = repo.state.onDidChange(() => {
         const head = repo.state.HEAD;
-        console.log('XXX - state changed — HEAD SHA:', repo.state.HEAD?.commit);
+        console.log('XXX - state change: HEAD SHA:', repo.state.HEAD?.commit);
 
         // HEAD can be null during certain git operations: skip if true
         if (!head) return;
@@ -211,13 +283,13 @@ function setupRepo(repo, context) {
         // SHA changed and it is different from the last one we processed
         if (currentSha && currentSha !== lastCommitSha) {
             lastCommitSha = currentSha;
-            // Call onCommit(...)
+            onCommit(workspacePath, currentSha);
         }
 
         // === Detect a push ========================================
         // ahead count was positive and has now decreased
         if (previousAhead > 0 && currentAhead < previousAhead) {
-            // Call onPush(...)
+            onPush(workspacePath);
         }
 
         // Update previousAhead for the next state change comparison
