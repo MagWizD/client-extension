@@ -9,9 +9,11 @@
   "categories": [
     "Other"
   ],
+  "extensionDependencies": [
+    "vscode.git"
+  ],
   "activationEvents": [
-    "onCommand:aiidentifier-extension.addDummyFlag",
-    "onCommand:aiidentifier-extension.showFlags"
+    "onStartupFinished"
   ],
   "main": "./extension.js",
   "contributes": {

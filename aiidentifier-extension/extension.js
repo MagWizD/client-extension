@@ -1,8 +1,9 @@
-// @ts-nocheck
-const vscode = require('vscode');					// Include the vscode module
-const { execSync } = require('child_process');		// 
-const fs = require('fs');							// 
-const path = require('path');						// 
+// === IMPORTS =====================================================
+//@ts-nocheck
+const vscode = require('vscode');               // VSCode extensibility API: Gives us access to VSCode features
+const { execSync } = require('child_process');  // Lets us run shell commands (git) synchronously
+const fs = require('fs');                       // File system: Read, write, check existence of files
+const path = require('path');                   // Path utilities: Safely join file paths (OS safe!)
 
 // === FLAGGED REGION CLASS =========================================
 class FlaggedRegion {
@@ -17,16 +18,78 @@ class FlaggedRegion {
 }
 
 // === SESSION STATE ================================================
+// flaggedRegions accumulates FlaggedRegion objects during the session.
 let flaggedRegions = [];
+// lastCommitSha tracks the SHA of the most recent commit we processed.
 let lastCommitSha = null;
+// storagePath is set in activate(): Points to VSCode's managed storage
+// folder for this extension. Persists between sessions.
+let storagePath = null;
+
+
+// === LOAD FLAGS FROM DISK ========================================
+// Reads flaggedRegions.json from extension's storage folder and
+// loads it to flaggedRegions array. Flags from a previous 
+// session are restored.
+function loadFlagsFromDisk() {
+    try {
+        const filePath = path.join(storagePath, 'flaggedRegions.json');
+        if (fs.existsSync(filePath)) {
+            const raw = fs.readFileSync(filePath, 'utf8');
+            const data = JSON.parse(raw);
+            // Support both old format (plain array) and new format (object with sha)
+            if (Array.isArray(data)) {
+                flaggedRegions = data;
+                lastCommitSha = null;
+            } else {
+                flaggedRegions = data.flaggedRegions || [];
+                lastCommitSha = data.lastCommitSha || null;
+            }
+            console.log(`aiidentifier: loaded ${flaggedRegions.length} flag(s), lastCommitSha: ${lastCommitSha?.slice(0, 7)}`);
+        } else {
+            console.log('aiidentifier: no saved flags found, starting fresh');
+        }
+    } catch (err) {
+        console.warn('aiidentifier: could not load flags from disk —', err.message);
+        flaggedRegions = [];
+        lastCommitSha = null;
+    }
+}
+
+// === SAVE FLAGS TO DISK ==========================================
+// Writes current flaggedRegions array to flaggedRegions.json in
+// extension's storage folder. Called every time flags are added
+// or the array is cleared so disk is synced to memory.
+function saveFlagsToDisk() {
+    try {
+        fs.mkdirSync(storagePath, { recursive: true });
+        const filePath = path.join(storagePath, 'flaggedRegions.json');
+        // Save both flags and lastCommitSha together so both survive restarts
+        fs.writeFileSync(filePath, JSON.stringify({
+            lastCommitSha: lastCommitSha,
+            flaggedRegions: flaggedRegions
+        }, null, 2));
+        console.log(`aiidentifier: saved ${flaggedRegions.length} flag(s) and sha ${lastCommitSha?.slice(0, 7)} to disk`);
+    } catch (err) {
+        console.warn('aiidentifier: could not save flags to disk —', err.message);
+    }
+}
+
 
 // === ACTIVATE =====================================================
-// Entry point — called once when the extension first loads in VSCode
+// Entry point: Called once when the extension first loads in VSCode
 function activate(context) {
-    
-	// Visual notification that the extension is active (FOR DEBUGGING ONLY!)
+    // Visual notification that the extension is active (XXX - DEBUG ONLY!)
     vscode.window.showInformationMessage('aiidentifier-extension is now active!');
     console.log('aiidentifier-extension is now active!');
+
+    storagePath = context.globalStorageUri.fsPath;
+
+    // Restore flags saved from a previous session
+    loadFlagsFromDisk();
+    vscode.window.showInformationMessage(
+        `aiidentifier: ${flaggedRegions.length} flag(s) restored from previous session`
+    );
 
     // Fetch VSCode's built-in Git extension API
     const gitExtension = vscode.extensions.getExtension('vscode.git')?.exports;
@@ -38,22 +101,38 @@ function activate(context) {
         return;
     }
 
-    // === Call installGitHooks on the repo already opened ==========
+    // Initialize lastCommitSha BEFORE setting up any listeners. This will 
+    // prevent restored flags from being attached to already-exisiting
+    // HEAD commit on activation.
+    git.repositories.forEach(repo => {
+        if (!lastCommitSha && repo.state.HEAD?.commit) {
+            lastCommitSha = repo.state.HEAD.commit;
+            console.log(`aiidentifier: initialized lastCommitSha to ${lastCommitSha.slice(0, 7)}`);
+            // Persist right away so restarts remember which commit was current
+            saveFlagsToDisk();
+        }
+    });
+
+
+    // === Call installGitHooks on already open repos ==========
     git.repositories.forEach(repo => {
         const workspacePath = repo.rootUri.fsPath;
         installGitHooks(workspacePath);
     });
 
-    // === Also call it on any repo opened after activation =========
+    // === Also handle repos opened after activation ================
     const repoListener = git.onDidOpenRepository(repo => {
         const workspacePath = repo.rootUri.fsPath;
         installGitHooks(workspacePath);
     });
 
-    // Push the repoListener to the context subscriptions
+    // Register the repoListener with VSCode
     context.subscriptions.push(repoListener);
 
-    // === COMMAND: Add dummy flag for testing ======================
+
+    // === COMMAND: Add dummy flag for testing (XXX - DEBUG ONLY!) ==
+    // Simulates what will eventually happen automatically when the
+    // extension flags suspicious and AI-generated code.
     const addDummy = vscode.commands.registerCommand(
         'aiidentifier-extension.addDummyFlag',
         function () {
@@ -65,46 +144,53 @@ function activate(context) {
                 'Large instant insertion — 312 chars in <100ms',
                 new Date().toISOString()
             );
-			// Push the test object to the array
+			// Add test object to the array
             flaggedRegions.push(dummy);
-			// Notify user (FOR DEBUG ONLY!)
+            // Persist to disk so closing VSCode doesn't lose the flag
+            saveFlagsToDisk();
+            // Notify user (XXX - DEBUG ONLY!)
             vscode.window.showInformationMessage(
                 `aiidentifier-extension: Dummy flag added. Total flags queued: ${flaggedRegions.length}`
             );
         }
     );
 
-	// === COMMAND: Show current queued flags =======================
-    // Lets the user see what will be attached to the next commit
+	// === COMMAND: Show current queued flags (XXX - DEBUG ONLY!) ===
+    // Lets developer see what is currently queued to be added
+    // to next commit's git note.
     const showFlags = vscode.commands.registerCommand(
         'aiidentifier-extension.showFlags',
         function () {
+
+            // Nothing queued: Tell the user and exit early
             if (flaggedRegions.length === 0) {
                 vscode.window.showInformationMessage('aislop: No flags queued for next commit.');
                 return;
             }
+            // Build summary of all queued flags
             const summary = flaggedRegions.map((r, i) =>
                 `${i + 1}. ${r.file} L${r.startLine}-${r.endLine} — ${r.reasonFlagged}`
             ).join('\n');
+            
+            // Show summary in a VSCode notification
             vscode.window.showInformationMessage(`aislop: ${flaggedRegions.length} flag(s) queued:\n${summary}`);
         }
     );
 
+    // Register commands so VSCode knows about them
     context.subscriptions.push(addDummy, showFlags);
 }
 
-
 // === Install the git hooks needed ==========================================
-// Creates a .githooks/pre-push script in the repo that automatically
+// Create a .git/hooks/pre-push script in the repo that automatically
 function installGitHooks(workspacePath) {
     try {
-        // Write directly to .git/hooks/. This is the default git hooks
-        // directory and does not require changing any git config settings
+        // Write directly to .git/hooks/
         const hooksDir = path.join(workspacePath, '.git', 'hooks');
         const hookFile = path.join(hooksDir, 'pre-push');
 
         // The line we want to place in the hook (unless it already exists)
-        const ourLine = 'git push origin refs/notes/* 2>/dev/null || true';
+        const ourLine = 'git push origin refs/notes/* --timeout=5 2>/dev/null || true';
         const ourBlock = [
             '',
             '# aiidentifier — push flagged region notes to remote',
@@ -116,31 +202,33 @@ function installGitHooks(workspacePath) {
             const existing = fs.readFileSync(hookFile, 'utf8');
 
             if (existing.includes(ourLine)) {
-                // Our line is already in the hook, nothing else to do
+                // Our line is already in the hook, skip this part
                 vscode.window.showInformationMessage(
-                    'aiidentifier-extension: pre-push hook already configured, skipping.'
+                    'aiidentifier-extension: pre-push hook already configured, skipping injection.'
                 );
                 return;
             }
 
-            // Append our logic to the end of the existing hook
+            // Append the logic to the end of the existing hook
             fs.appendFileSync(hookFile, ourBlock);
             vscode.window.showInformationMessage(
-                'aiidentifier-extension: Appended notes-push to existing pre-push hook.'
+                'aiidentifier-extension: Appended notes-push logic to existing pre-push hook.'
             );
 
         } else {
-            // Create a fresh hook if no others exist yet
+            // Create a new hook if no others exist yet
             const freshHook = [
                 '#!/bin/sh',
                 '# pre-push hook',
                 '# aiidentifier — push flagged region notes to remote',
+                '# timeout after 5 seconds to prevent stalling',
                 ourLine,
+                'exit 0',  // always exit cleanly
             ].join('\n');
 
             fs.writeFileSync(hookFile, freshHook);
 
-            // Make executable on Mac/Linux, this will be silently ignored on Windows
+            // Make executable on Mac/Linux (should be silently ignored for Windows clients)
             try { execSync(`chmod +x ${hookFile}`); } catch (_) {}
 
             vscode.window.showInformationMessage(
@@ -149,7 +237,7 @@ function installGitHooks(workspacePath) {
         }
 
     } catch (err) {
-        // Non-fatal — warn that the hook could not be installed -- just warn, do not crash
+        // Non-fatal: warn that the hook could not be installed
         vscode.window.showWarningMessage(
             `aiidentifier-extension: Could not install git hooks — ${err.message}`
         );
