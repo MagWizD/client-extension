@@ -21,6 +21,7 @@ let flaggedRegions = [];
 let lastCommitSha = null;
 
 // === ACTIVATE =====================================================
+// Entry point — called once when the extension first loads in VSCode
 function activate(context) {
     
 	// Visual notification that the extension is active (FOR DEBUGGING ONLY!)
@@ -36,6 +37,21 @@ function activate(context) {
         vscode.window.showErrorMessage('aiidentifier-extension: Could not access VSCode Git API.');
         return;
     }
+
+    // === Call installGitHooks on the repo already opened ==========
+    git.repositories.forEach(repo => {
+        const workspacePath = repo.rootUri.fsPath;
+        installGitHooks(workspacePath);
+    });
+
+    // === Also call it on any repo opened after activation =========
+    const repoListener = git.onDidOpenRepository(repo => {
+        const workspacePath = repo.rootUri.fsPath;
+        installGitHooks(workspacePath);
+    });
+
+    // Push the repoListener to the context subscriptions
+    context.subscriptions.push(repoListener);
 
     // === COMMAND: Add dummy flag for testing ======================
     const addDummy = vscode.commands.registerCommand(
@@ -59,6 +75,7 @@ function activate(context) {
     );
 
 	// === COMMAND: Show current queued flags =======================
+    // Lets the user see what will be attached to the next commit
     const showFlags = vscode.commands.registerCommand(
         'aiidentifier-extension.showFlags',
         function () {
@@ -73,8 +90,70 @@ function activate(context) {
         }
     );
 
+    context.subscriptions.push(addDummy, showFlags);
+}
 
-    context.subscriptions.push(addDummy);
+
+// === Install the git hooks needed ==========================================
+// Creates a .githooks/pre-push script in the repo that automatically
+function installGitHooks(workspacePath) {
+    try {
+        // Write directly to .git/hooks/. This is the default git hooks
+        // directory and does not require changing any git config settings
+        const hooksDir = path.join(workspacePath, '.git', 'hooks');
+        const hookFile = path.join(hooksDir, 'pre-push');
+
+        // The line we want to place in the hook (unless it already exists)
+        const ourLine = 'git push origin refs/notes/* 2>/dev/null || true';
+        const ourBlock = [
+            '',
+            '# aiidentifier — push flagged region notes to remote',
+            ourLine,
+        ].join('\n');
+
+        if (fs.existsSync(hookFile)) {
+            // Hook already exists, we must read it and check if we are already in it
+            const existing = fs.readFileSync(hookFile, 'utf8');
+
+            if (existing.includes(ourLine)) {
+                // Our line is already in the hook, nothing else to do
+                vscode.window.showInformationMessage(
+                    'aiidentifier-extension: pre-push hook already configured, skipping.'
+                );
+                return;
+            }
+
+            // Append our logic to the end of the existing hook
+            fs.appendFileSync(hookFile, ourBlock);
+            vscode.window.showInformationMessage(
+                'aiidentifier-extension: Appended notes-push to existing pre-push hook.'
+            );
+
+        } else {
+            // Create a fresh hook if no others exist yet
+            const freshHook = [
+                '#!/bin/sh',
+                '# pre-push hook',
+                '# aiidentifier — push flagged region notes to remote',
+                ourLine,
+            ].join('\n');
+
+            fs.writeFileSync(hookFile, freshHook);
+
+            // Make executable on Mac/Linux, this will be silently ignored on Windows
+            try { execSync(`chmod +x ${hookFile}`); } catch (_) {}
+
+            vscode.window.showInformationMessage(
+                'aiidentifier-extension: Created pre-push hook in .git/hooks/'
+            );
+        }
+
+    } catch (err) {
+        // Non-fatal — warn that the hook could not be installed -- just warn, do not crash
+        vscode.window.showWarningMessage(
+            `aiidentifier-extension: Could not install git hooks — ${err.message}`
+        );
+    }
 }
 
 
