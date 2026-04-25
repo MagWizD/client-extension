@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Build output (TypeScript compiler, esbuild, or Webpack)
+out/
+dist/
+
+# VS Code Extension specific
+.vscode-test/
+*.vsix
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS metadata
+.DS_Store
+Thumbs.db
