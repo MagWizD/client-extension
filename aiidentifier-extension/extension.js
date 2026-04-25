@@ -113,17 +113,18 @@ function activate(context) {
         }
     });
 
-
     // === Call installGitHooks on already open repos ==========
     git.repositories.forEach(repo => {
         const workspacePath = repo.rootUri.fsPath;
         installGitHooks(workspacePath);
+        setupRepo(repo, context);
     });
 
     // === Also handle repos opened after activation ================
     const repoListener = git.onDidOpenRepository(repo => {
         const workspacePath = repo.rootUri.fsPath;
         installGitHooks(workspacePath);
+        setupRepo(repo, contest);
     });
 
     // Register the repoListener with VSCode
@@ -180,6 +181,53 @@ function activate(context) {
     // Register commands so VSCode knows about them
     context.subscriptions.push(addDummy, showFlags);
 }
+
+
+// === SETUP REPO ==================================================
+// Called once per repository: Sets up state-change-listener
+// to detect commits and pushes. 
+// THis is isolated from activate() so that it will be called for each repo
+function setupRepo(repo, context) {
+    // Path to the workspace
+    const workspacePath = repo.rootUri.fsPath;
+    console.log('XXX - setupRepo called for:', workspacePath);
+
+    // Track previous ahead count to detect when push occurs (0 == PUSH)
+    let previousAhead = repo.state.HEAD?.ahead ?? 0;
+
+    // Listen for any change in repo state: fires on commit, push,
+    // branch switch, pull, etc.
+    const stateListener = repo.state.onDidChange(() => {
+        const head = repo.state.HEAD;
+        console.log('XXX - state changed — HEAD SHA:', repo.state.HEAD?.commit);
+
+        // HEAD can be null during certain git operations: skip if true
+        if (!head) return;
+
+        const currentSha = head.commit;
+        const currentAhead = head.ahead ?? 0;
+
+        // == Detect a new commit ==================================
+        // SHA changed and it is different from the last one we processed
+        if (currentSha && currentSha !== lastCommitSha) {
+            lastCommitSha = currentSha;
+            // Call onCommit(...)
+        }
+
+        // === Detect a push ========================================
+        // ahead count was positive and has now decreased
+        if (previousAhead > 0 && currentAhead < previousAhead) {
+            // Call onPush(...)
+        }
+
+        // Update previousAhead for the next state change comparison
+        previousAhead = currentAhead;
+    });
+
+    // Register the listener to VSCode
+    context.subscriptions.push(stateListener);
+}
+
 
 // === Install the git hooks needed ==========================================
 // Create a .git/hooks/pre-push script in the repo that automatically
