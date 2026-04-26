@@ -4,18 +4,24 @@ const vscode = require('vscode');               // VSCode extensibility API: Giv
 const { execSync } = require('child_process');  // Lets us run shell commands (git) synchronously
 const fs = require('fs');                       // File system: Read, write, check existence of files
 const path = require('path');                   // Path utilities: Safely join file paths (OS safe!)
+const cryptojs = require('crypto-js');
+const os = require('os');
 
 // === FLAGGED REGION CLASS =========================================
 class FlaggedRegion {
-    constructor(file, startLine, endLine, charCount, reasonFlagged, timestamp) {
+    constructor(file, startLine, endLine, charCount, reasonFlagged, timestamp, chatPrompts, responses) {
         this.file = file;						// File of the flagged region
         this.startLine = startLine;				// Line number of the first line of the flagged region
         this.endLine = endLine;					// Line number of the end line of the flagged region
         this.charCount = charCount;				// Number of characters in the flagged region
         this.reasonFlagged = reasonFlagged;		// Description as to why this region was flagged
         this.timeStamp = timestamp;				// When was this region flagged
+        this.chatPrompts = chatPrompts;
+        this.responses = responses;
     }
 }
+
+
 
 // === SESSION STATE ================================================
 // flaggedRegions accumulates FlaggedRegion objects during the session.
@@ -25,6 +31,9 @@ let lastCommitSha = null;
 // storagePath is set in activate(): Points to VSCode's managed storage
 // folder for this extension. Persists between sessions.
 let storagePath = null;
+
+
+let chatSessionDir;
 
 
 // === LOAD FLAGS FROM DISK ========================================
@@ -75,6 +84,68 @@ function saveFlagsToDisk() {
     }
 }
 
+function parseJSONL(file) {
+
+}
+
+function parseJSON(file) {
+    
+}
+
+function findJSONFiles() {
+    if (storagePath !== null) {
+        let workspaceDirectory = path.resolve(storagePath, '../../workspaceStorage/');
+        console.log(workspaceDirectory);
+
+        let workspaceID = vscode.workspace.workspaceFolders[0].uri.fsPath;
+        console.log(workspaceID);
+
+        let workspaceUri = `file://${workspaceID}`;
+        let hashedWorkspaceDir;
+
+        const workspaceStoragePath = path.join(os.homedir(), '.config', 'Code', 'User', 'workspaceStorage');
+        fs.readdirSync(workspaceStoragePath, (err, workspaceFolders) => {
+            if (err) {
+                console.error('Error scanning in workspaceStorage directory.');
+            }
+            let found = false;
+            for (let workspaceFolder in workspaceFolders) {
+                let workspaceJson = require(`./${workspaceFolder}/workspace.json`);
+                fs.readFile(workspaceJson, (err, data) => {
+                    if (err) {
+                        console.error('Error reading workspace.json');
+                    }
+
+                    const folder = JSON.parse(data);
+                    console.log(folder);
+
+                    if (folder === workspaceUri) {
+                        hashedWorkspaceDir = workspaceFolder;
+                        found = true;
+                    }
+                });
+                if (found === true) {
+                    break;
+                }
+            }
+        });
+
+        const chatSessionsDir = path.join(workspaceStoragePath, hashedWorkspaceDir, 'chatSessions');
+        fs.readdirSync(chatSessionsDir, (err, files) => {
+            let curJSONFile;
+            for (let file in files) {
+                if (file.extname === '.jsonl'){
+
+                } else {
+                    curJSONFile = file;
+                }
+
+
+            }
+        });
+    }
+}
+
 
 // === ACTIVATE =====================================================
 // Entry point: Called once when the extension first loads in VSCode
@@ -84,6 +155,8 @@ function activate(context) {
     console.log('aiidentifier-extension is now active!');
 
     storagePath = context.globalStorageUri.fsPath;
+
+    findJSONFiles();
 
     // Restore flags saved from a previous session
     loadFlagsFromDisk();
