@@ -95,21 +95,21 @@ function parseJSON(file) {
 function findJSONFiles() {
     if (storagePath !== null) {
         let workspaceDirectory = path.resolve(storagePath, '../../workspaceStorage/');
-        console.log(workspaceDirectory);
+        console.log(`Workspace Directory = ${workspaceDirectory}`);
 
         let workspaceID = vscode.workspace.workspaceFolders[0].uri.fsPath;
-        console.log(workspaceID);
+        console.log(`Workspace ID = ${workspaceID}`);
 
         let workspaceUri = `file://${workspaceID}`;
         let hashedWorkspaceDir;
 
-        const workspaceStoragePath = path.join(os.homedir(), '.config', 'Code', 'User', 'workspaceStorage');
-        fs.readdirSync(workspaceStoragePath, (err, workspaceFolders) => {
+        fs.readdirSync(workspaceDirectory, (err, workspaceFolders) => {
             if (err) {
                 console.error('Error scanning in workspaceStorage directory.');
             }
             let found = false;
             for (let workspaceFolder in workspaceFolders) {
+                
                 let workspaceJson = require(`./${workspaceFolder}/workspace.json`);
                 fs.readFile(workspaceJson, (err, data) => {
                     if (err) {
