@@ -17,6 +17,14 @@
   ],
   "main": "./extension.js",
   "contributes": {
+    "chatParticipants": [
+        {
+            "id": "ranger",
+            "name": "ranger",
+            "description": "AI contribution tracker — logs chat exchanges to git notes",
+            "isSticky": false
+        }
+    ],
     "commands": [{
       "command": "aiidentifier-extension.addDummyFlag",
       "title": "Add Dummy Flag"

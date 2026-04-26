@@ -4,23 +4,18 @@ const vscode = require('vscode');               // VSCode extensibility API: Giv
 const { execSync } = require('child_process');  // Lets us run shell commands (git) synchronously
 const fs = require('fs');                       // File system: Read, write, check existence of files
 const path = require('path');                   // Path utilities: Safely join file paths (OS safe!)
-const cryptojs = require('crypto-js');
-const os = require('os');
 
 // === FLAGGED REGION CLASS =========================================
 class FlaggedRegion {
-    constructor(file, startLine, endLine, charCount, reasonFlagged, timestamp, chatPrompts, responses) {
+    constructor(file, startLine, endLine, charCount, reasonFlagged, timestamp) {
         this.file = file;						// File of the flagged region
         this.startLine = startLine;				// Line number of the first line of the flagged region
         this.endLine = endLine;					// Line number of the end line of the flagged region
         this.charCount = charCount;				// Number of characters in the flagged region
         this.reasonFlagged = reasonFlagged;		// Description as to why this region was flagged
         this.timeStamp = timestamp;				// When was this region flagged
-        this.chatPrompts = chatPrompts;
-        this.responses = responses;
     }
 }
-
 
 
 // === SESSION STATE ================================================
@@ -31,10 +26,9 @@ let lastCommitSha = null;
 // storagePath is set in activate(): Points to VSCode's managed storage
 // folder for this extension. Persists between sessions.
 let storagePath = null;
-
-
-let chatSessionDir;
-
+// Accumulates query/response pairs from the chat participant during
+// the session. 
+let chatHistory = [];
 
 // === LOAD FLAGS FROM DISK ========================================
 // Reads flaggedRegions.json from extension's storage folder and
@@ -50,9 +44,11 @@ function loadFlagsFromDisk() {
             if (Array.isArray(data)) {
                 flaggedRegions = data;
                 lastCommitSha = null;
+                chatHistory = [];
             } else {
                 flaggedRegions = data.flaggedRegions || [];
                 lastCommitSha = data.lastCommitSha || null;
+                chatHistory = data.chatHistory || [];   // Restore chat history!
             }
             console.log(`aiidentifier: loaded ${flaggedRegions.length} flag(s), lastCommitSha: ${lastCommitSha?.slice(0, 7)}`);
         } else {
@@ -62,6 +58,7 @@ function loadFlagsFromDisk() {
         console.warn('aiidentifier: could not load flags from disk —', err.message);
         flaggedRegions = [];
         lastCommitSha = null;
+        chatHistory = [];
     }
 }
 
@@ -76,7 +73,8 @@ function saveFlagsToDisk() {
         // Save both flags and lastCommitSha together so both survive restarts
         fs.writeFileSync(filePath, JSON.stringify({
             lastCommitSha: lastCommitSha,
-            flaggedRegions: flaggedRegions
+            flaggedRegions: flaggedRegions,
+            chatHistory: chatHistory
         }, null, 2));
         console.log(`aiidentifier: saved ${flaggedRegions.length} flag(s) and sha ${lastCommitSha?.slice(0, 7)} to disk`);
     } catch (err) {
@@ -84,79 +82,18 @@ function saveFlagsToDisk() {
     }
 }
 
-function parseJSONL(file) {
-
-}
-
-function parseJSON(file) {
-    
-}
-
-function findJSONFiles() {
-    if (storagePath !== null) {
-        let workspaceDirectory = path.resolve(storagePath, '../../workspaceStorage/');
-        console.log(workspaceDirectory);
-
-        let workspaceID = vscode.workspace.workspaceFolders[0].uri.fsPath;
-        console.log(workspaceID);
-
-        let workspaceUri = `file://${workspaceID}`;
-        let hashedWorkspaceDir;
-
-        const workspaceStoragePath = path.join(os.homedir(), '.config', 'Code', 'User', 'workspaceStorage');
-        fs.readdirSync(workspaceStoragePath, (err, workspaceFolders) => {
-            if (err) {
-                console.error('Error scanning in workspaceStorage directory.');
-            }
-            let found = false;
-            for (let workspaceFolder in workspaceFolders) {
-                let workspaceJson = require(`./${workspaceFolder}/workspace.json`);
-                fs.readFile(workspaceJson, (err, data) => {
-                    if (err) {
-                        console.error('Error reading workspace.json');
-                    }
-
-                    const folder = JSON.parse(data);
-                    console.log(folder);
-
-                    if (folder === workspaceUri) {
-                        hashedWorkspaceDir = workspaceFolder;
-                        found = true;
-                    }
-                });
-                if (found === true) {
-                    break;
-                }
-            }
-        });
-
-        const chatSessionsDir = path.join(workspaceStoragePath, hashedWorkspaceDir, 'chatSessions');
-        fs.readdirSync(chatSessionsDir, (err, files) => {
-            let curJSONFile;
-            for (let file in files) {
-                if (file.extname === '.jsonl'){
-
-                } else {
-                    curJSONFile = file;
-                }
-
-
-            }
-        });
-    }
-}
-
 
 // === ACTIVATE =====================================================
 // Entry point: Called once when the extension first loads in VSCode
+/**
+ * @param {vscode.ExtensionContext} context
+ */
 function activate(context) {
     // Visual notification that the extension is active (XXX - DEBUG ONLY!)
     vscode.window.showInformationMessage('aiidentifier-extension is now active!');
     console.log('aiidentifier-extension is now active!');
 
     storagePath = context.globalStorageUri.fsPath;
-
-    findJSONFiles();
 
     // Restore flags saved from a previous session
     loadFlagsFromDisk();
@@ -209,22 +146,19 @@ function activate(context) {
     // extension flags suspicious and AI-generated code.
     const addDummy = vscode.commands.registerCommand(
         'aiidentifier-extension.addDummyFlag',
-        function () {
-            const dummy = new FlaggedRegion(
-                'src/index.js',
-                10,
-                25,
-                312,
-                'Large instant insertion — 312 chars in <100ms',
+        function (file, startLine, endLine, charCount, reason) {
+            const flag = new FlaggedRegion(
+                file      || 'src/index.js',
+                startLine || 10,
+                endLine   || 25,
+                charCount || 312,
+                reason    || 'Large instant insertion — 312 chars in <100ms',
                 new Date().toISOString()
             );
-			// Add test object to the array
-            flaggedRegions.push(dummy);
-            // Persist to disk so closing VSCode doesn't lose the flag
+            flaggedRegions.push(flag);
             saveFlagsToDisk();
-            // Notify user (XXX - DEBUG ONLY!)
             vscode.window.showInformationMessage(
-                `aiidentifier-extension: Dummy flag added. Total flags queued: ${flaggedRegions.length}`
+                `aiidentifier: flag added. Total queued: ${flaggedRegions.length}`
             );
         }
     );
@@ -253,15 +187,65 @@ function activate(context) {
 
     // Register commands so VSCode knows about them
     context.subscriptions.push(addDummy, showFlags);
+
+
+    // === CHAT PARTICIPANT (Ranger) ================================
+    // Logs every query/response pair to chatHistory so they can be attached
+    // to the next git note on commit. Cleared after each commit alongside 
+    // flaggedRegions.
+    const chatHandler = async(request, _, stream, token) => {
+        try {
+            console.log('[aiidentifier] Chat request received: ', request.prompt);
+
+            // Select Copilot as the backing model
+            const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
+
+            // No model found from lm selection
+            if (models.length === 0) {
+                stream.markdown('Copilot model not found!');
+                return;
+            }
+
+            const messages = [vscode.LanguageModelChatMessage.User(request.prompt)];
+            const chatResponse = await models[0].sendRequest(messages, {}, token);
+
+            // Stream response back to the user
+            let response = '';
+            for await (const fragment of chatResponse.text) {
+                stream.markdown(fragment);
+                response += fragment;
+            }
+
+            // Store the query/response pair in chatHistory
+            // and immediately persist to disk in case VSCode closes
+            chatHistory.push({
+                timestamp: new Date().toISOString(),
+                query: request.prompt,
+                response: response
+            });
+            saveFlagsToDisk();
+
+            console.log(`[aiidentifier] Chat exchange logged. Total: ${chatHistory.length}`);
+
+        } catch (error) {
+            console.error('[aiidentifier] Chat error:', error);
+            stream.markdown(`**Error:** ${error instanceof Error ? error.message : String(error)}`);
+        }
+    };
+
+    // Register the chat participant
+    const chatParticipant = vscode.chat.createChatParticipant('ranger', chatHandler);
+    context.subscriptions.push(chatParticipant);
+    
 }
 
 // === ON COMMIT ===================================================
 // Called by setupRepo's stateListener when new commit detected
 function onCommit(workspacePath, sha) {
     // No flags queued
-    if (flaggedRegions.length === 0) {
+    if (flaggedRegions.length === 0 && chatHistory.length === 0) {
         vscode.window.showInformationMessage(
-            `aiidentifier-extension: Commit ${sha.slice(0, 7)} detected: no flags to attach.`
+            `aiidentifier-extension: Commit ${sha.slice(0, 7)} detected: nothing to attach.`
         );
         return;
     }
@@ -273,7 +257,8 @@ function onCommit(workspacePath, sha) {
             commit: sha,
             generatedAt: new Date().toISOString(),
             flagCount: flaggedRegions.length,
-            flaggedRegions: flaggedRegions
+            flaggedRegions: flaggedRegions,
+            chatHistory: chatHistory
         }, null, 2);
 
         // Write the JSON as a git note attached to this commit SHA.
@@ -292,15 +277,19 @@ function onCommit(workspacePath, sha) {
         fs.unlinkSync(tempFile);
 
         // Save count before clearing so we can show it in the message
-        const count = flaggedRegions.length;
+        const flagCount = flaggedRegions.length;
+        const chatCount = chatHistory.length;
+
         // Clear array, next commit starts with no flags
         flaggedRegions = [];
+        chatHistory = [];
+
         // Persist cleared state to disk
         saveFlagsToDisk();
 
         // Confirm to user (XXX - DEBUG ONLY!)
         vscode.window.showInformationMessage(
-            `aiidentifier-extension: ${count} flag(s) attached to commit ${sha.slice(0, 7)} and cleared.`
+            `aiidentifier: ${flagCount} flag(s) and ${chatCount} chat exchange(s) attached to commit ${sha.slice(0, 7)} and cleared.`
         );
 
     } catch (err) {
