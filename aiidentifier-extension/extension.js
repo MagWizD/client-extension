@@ -121,6 +121,18 @@ function findJSONFiles() {
                 }
             }
         }
+
+        console.log(`Hashed dir = ${hashedWorkspaceDir}`);
+
+        let jsonlListDirectory = path.join(workspaceDirectory, hashedWorkspaceDir, `chatSessions`);
+
+        let jsonlList = fs.readdirSync(jsonlListDirectory);
+
+        for (let jsonlFile in jsonlList) {
+            console.log(`Current JSONL file  = ${jsonlFile}`);
+
+            
+        }
     }
 }
 
@@ -134,7 +146,7 @@ function activate(context) {
 
     storagePath = context.globalStorageUri.fsPath;
 
-    findJSONFiles();
+    // sfindJSONFiles();
 
     // Restore flags saved from a previous session
     loadFlagsFromDisk();
