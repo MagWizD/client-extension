@@ -17,14 +17,16 @@
   ],
   "main": "./extension.js",
   "contributes": {
-    "commands": [{
-      "command": "aiidentifier-extension.addDummyFlag",
-      "title": "Add Dummy Flag"
-    },
-    {
-      "command": "aiidentifier-extension.showFlags",
-      "title": "Show Flags"
-    }]
+    "commands": [
+      {
+        "command": "aiidentifier-extension.addDummyFlag",
+        "title": "Add Dummy Flag"
+      },
+      {
+        "command": "aiidentifier-extension.showFlags",
+        "title": "Show Flags"
+      }
+    ]
   },
   "scripts": {
     "lint": "eslint .",
@@ -32,11 +34,14 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.116.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
-    "eslint": "^9.39.3",
+    "@types/vscode": "^1.116.0",
     "@vscode/test-cli": "^0.0.12",
-    "@vscode/test-electron": "^2.5.2"
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.39.3"
+  },
+  "dependencies": {
+    "crypto-js": "^4.2.0"
   }
 }
