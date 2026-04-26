@@ -30,6 +30,8 @@ let storagePath = null;
 // the session. 
 let chatHistory = [];
 
+let lastEditTime = Date.now();
+
 // === LOAD FLAGS FROM DISK ========================================
 // Reads flaggedRegions.json from extension's storage folder and
 // loads it to flaggedRegions array. Flags from a previous 
@@ -236,7 +238,38 @@ function activate(context) {
     // Register the chat participant
     const chatParticipant = vscode.chat.createChatParticipant('ranger', chatHandler);
     context.subscriptions.push(chatParticipant);
-    
+
+
+    // === DETECTION LISTENER ==========================================
+    // Passively watch all text changes. Fires on every edit in any
+    // open file. Rule 1 only: large instant insertion detection.
+    const changeListener = vscode.workspace.onDidChangeTextDocument(event => {
+        const now = Date.now();
+
+        for (const change of event.contentChanges) {
+            const charCount = change.text.length;
+            const elapsedMs = now - lastEditTime;
+            const charsPerSecond = charCount / (elapsedMs / 1000);
+            const lineCount = (change.text.match(/\n/g) || []).length;
+
+            // Rule 1: Large instant insertion
+            // Humans type ~4 chars/sec — AI inserts hundreds instantly
+            if (charCount > 100 && charsPerSecond > 300) {
+                vscode.commands.executeCommand(
+                    'aiidentifier-extension.addDummyFlag',
+                    event.document.fileName,
+                    change.range.start.line + 1,
+                    change.range.start.line + lineCount + 1,
+                    charCount,
+                    `Large instant insertion — ${charCount} chars in ${elapsedMs}ms`
+                );
+            }
+
+            lastEditTime = now;
+        }
+    });
+
+    context.subscriptions.push(changeListener);
 }
 
 // === ON COMMIT ===================================================
