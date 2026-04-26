@@ -337,8 +337,15 @@ function onCommit(workspacePath, sha) {
 // Called by setupRepo's stateListener when push detected.
 function onPush(workspacePath) {
     try {
-        // Push all refs/notes/* to origin so GitHub bot can read them
-        execSync('git push origin refs/notes/*', { cwd: workspacePath });
+        // Fetch remote notes into temp ref
+        execSync('git fetch origin refs/notes/commits:refs/notes/remote_commits', 
+            { cwd: workspacePath });
+        // Merge remote notes into local
+        execSync('git notes merge refs/notes/remote_commits', 
+            { cwd: workspacePath });
+        // Push merged result
+        execSync('git push origin refs/notes/commits', 
+            { cwd: workspacePath });
 
         vscode.window.showInformationMessage(
             'aiidentifier-extension: Notes pushed to remote successfully.'
