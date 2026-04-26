@@ -412,10 +412,12 @@ function installGitHooks(workspacePath) {
         const hookFile = path.join(hooksDir, 'pre-push');
 
         // The line we want to place in the hook (unless it already exists)
-        const ourLine = 'git push origin refs/notes/* --timeout=5 2>/dev/null || true';
+        const ourLine = 'git push origin refs/notes/commits 2>/dev/null || true';
         const ourBlock = [
             '',
             '# aiidentifier — push flagged region notes to remote',
+            'git fetch origin refs/notes/commits:refs/notes/remote_commits 2>/dev/null || true',
+            'git notes merge refs/notes/remote_commits 2>/dev/null || true',
             ourLine,
         ].join('\n');
 
@@ -443,9 +445,10 @@ function installGitHooks(workspacePath) {
                 '#!/bin/sh',
                 '# pre-push hook',
                 '# aiidentifier — push flagged region notes to remote',
-                '# timeout after 5 seconds to prevent stalling',
+                'git fetch origin refs/notes/commits:refs/notes/remote_commits 2>/dev/null || true',
+                'git notes merge refs/notes/remote_commits 2>/dev/null || true',
                 ourLine,
-                'exit 0',  // always exit cleanly
+                'exit 0',
             ].join('\n');
 
             fs.writeFileSync(hookFile, freshHook);
