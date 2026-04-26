@@ -31,6 +31,9 @@ let storagePath = null;
 let chatHistory = [];
 
 let lastEditTime = Date.now();
+// Tracks the last time each file was flagged to prevent duplicate flags
+// from a single paste that VSCode chunks into multiple change events
+let recentlyFlagged = {};
 
 // === LOAD FLAGS FROM DISK ========================================
 // Reads flaggedRegions.json from extension's storage folder and
@@ -245,30 +248,39 @@ function activate(context) {
     // open file. Rule 1 only: large instant insertion detection.
     const changeListener = vscode.workspace.onDidChangeTextDocument(event => {
         const now = Date.now();
+        const fileName = event.document.fileName;
+
+        // Skip git internal files — VSCode sometimes opens .git object files
+        if (fileName.includes('.git')) return;
 
         for (const change of event.contentChanges) {
             const charCount = change.text.length;
             const elapsedMs = now - lastEditTime;
-            const charsPerSecond = charCount / (elapsedMs / 1000);
             const lineCount = (change.text.match(/\n/g) || []).length;
 
             // Rule 1: Large instant insertion
-            // Humans type ~4 chars/sec — AI inserts hundreds instantly
-            if (charCount > 100 && charsPerSecond > 300) {
-                vscode.commands.executeCommand(
-                    'aiidentifier-extension.addDummyFlag',
-                    event.document.fileName,
-                    change.range.start.line + 1,
-                    change.range.start.line + lineCount + 1,
-                    charCount,
-                    `Large instant insertion — ${charCount} chars in ${elapsedMs}ms`
-                );
+            // Any single change over 200 chars is definitively a paste or AI insertion
+            if (charCount > 200) {
+                const lastFlagged = recentlyFlagged[fileName] || 0;
+
+                // Only flag if we haven't flagged this file in the last 2 seconds
+                // prevents multiple flags from a single paste that VSCode chunks
+                if (now - lastFlagged > 2000) {
+                    recentlyFlagged[fileName] = now;
+                    vscode.commands.executeCommand(
+                        'aiidentifier-extension.addDummyFlag',
+                        fileName,
+                        change.range.start.line + 1,
+                        change.range.start.line + lineCount + 1,
+                        charCount,
+                        `Large instant insertion — ${charCount} chars in ${elapsedMs}ms`
+                    );
+                }
             }
 
             lastEditTime = now;
         }
     });
-
     context.subscriptions.push(changeListener);
 }
 
