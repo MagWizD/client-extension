@@ -4,7 +4,6 @@ const vscode = require('vscode');               // VSCode extensibility API: Giv
 const { execSync } = require('child_process');  // Lets us run shell commands (git) synchronously
 const fs = require('fs');                       // File system: Read, write, check existence of files
 const path = require('path');                   // Path utilities: Safely join file paths (OS safe!)
-const cryptojs = require('crypto-js');
 const os = require('os');
 
 // === FLAGGED REGION CLASS =========================================
@@ -101,48 +100,27 @@ function findJSONFiles() {
         console.log(`Workspace ID = ${workspaceID}`);
 
         let workspaceUri = `file://${workspaceID}`;
+        console.log(`URI = ${workspaceUri}`);
         let hashedWorkspaceDir;
 
-        fs.readdirSync(workspaceDirectory, (err, workspaceFolders) => {
-            if (err) {
-                console.error('Error scanning in workspaceStorage directory.');
-            }
-            let found = false;
-            for (let workspaceFolder in workspaceFolders) {
-                
-                let workspaceJson = require(`./${workspaceFolder}/workspace.json`);
-                fs.readFile(workspaceJson, (err, data) => {
-                    if (err) {
-                        console.error('Error reading workspace.json');
-                    }
+        let hashedDirectoryList = fs.readdirSync(workspaceDirectory);
 
-                    const folder = JSON.parse(data);
-                    console.log(folder);
+        console.log(hashedDirectoryList);
 
-                    if (folder === workspaceUri) {
-                        hashedWorkspaceDir = workspaceFolder;
-                        found = true;
-                    }
-                });
-                if (found === true) {
+        for (let directory of hashedDirectoryList) {
+            console.log(`Current directory = ${directory}`);
+            let workspaceJsonDirectory = path.join(workspaceDirectory, directory, 'workspace.json');
+            if (fs.existsSync(workspaceJsonDirectory)) {
+                let workspaceJson = fs.readFileSync(workspaceJsonDirectory);
+                console.log(`Workspace JSON = ${workspaceJson}`);
+                let workspaceJsonFolder = JSON.parse(workspaceJson).folder;
+                if (workspaceJsonFolder === workspaceUri) {
+                    console.log('Found our workspace!');
+                    hashedWorkspaceDir = directory;
                     break;
                 }
             }
-        });
-
-        const chatSessionsDir = path.join(workspaceStoragePath, hashedWorkspaceDir, 'chatSessions');
-        fs.readdirSync(chatSessionsDir, (err, files) => {
-            let curJSONFile;
-            for (let file in files) {
-                if (file.extname === '.jsonl'){
-
-                } else {
-                    curJSONFile = file;
-                }
-
-
-            }
-        });
+        }
     }
 }
 
