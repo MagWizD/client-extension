@@ -1,0 +1,50 @@
+{
+  "name": "aiidentifier-extension",
+  "displayName": "aiidentifier-extension",
+  "description": "AI contribution detection and flagging suspicious VSCode",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.116.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionDependencies": [
+    "vscode.git"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "chatParticipants": [
+        {
+            "id": "ranger",
+            "name": "ranger",
+            "description": "AI contribution tracker — logs chat exchanges to git notes",
+            "isSticky": false
+        }
+    ],
+    "commands": [{
+      "command": "aiidentifier-extension.addDummyFlag",
+      "title": "Add Dummy Flag"
+    },
+    {
+      "command": "aiidentifier-extension.showFlags",
+      "title": "Show Flags"
+    }]
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "pretest": "npm run lint",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.116.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "eslint": "^9.39.3",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2"
+  }
+}
